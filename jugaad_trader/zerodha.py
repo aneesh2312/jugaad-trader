@@ -9,6 +9,7 @@ import json
 import configparser
 import os
 import pickle
+import urllib
 
 
 import requests
@@ -33,16 +34,16 @@ class Zerodha(KiteConnect):
     """
         TO DO:
         instruments - Deviation from KiteConnect
-        
-        
+
+
     """
     _default_root_uri = "https://kite.zerodha.com"
     def __init__(self, user_id=None, password=None, twofa=None):
-    
+
         self.user_id = user_id
         self.password = password
         self.twofa = twofa
-    
+
         super().__init__(api_key="")
         self.s = self.reqsession = requests.Session()
         headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36",
@@ -58,7 +59,7 @@ class Zerodha(KiteConnect):
         self.load_session()
 
     def load_session(self, path=None):
-        
+
         if path==None:
             path = os.path.join(click.get_app_dir(CLI_NAME), ".zsession")
         try:
@@ -84,7 +85,7 @@ class Zerodha(KiteConnect):
 
     def _user_agent(self):
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36"
-    
+
     def login_step1(self):
         self.r = self.reqsession.get(base_url)
         self.r = self.reqsession.post(login_url, data={"user_id": self.user_id, "password":self.password})
@@ -102,7 +103,7 @@ class Zerodha(KiteConnect):
         j = self.login_step1()
         if j['status'] == 'error':
             raise Exception(j['message'])
-        
+
         j = self.login_step2(j)
         if j['status'] == 'error':
             raise Exception(j['message'])
@@ -119,16 +120,16 @@ class Zerodha(KiteConnect):
         h['sec-fetch-dest'] = 'empty'
         h['x-kite-userid'] = self.user_id
         return h
-    
+
     def _request(self, route, method, url_args=None, params=None,
                  is_json=False, query_params=None):
         if url_args:
             uri = self._routes[route].format(**url_args)
         else:
-            uri = self._routes[route] 
+            uri = self._routes[route]
 
         url = urljoin(self.root, self.url_patch + uri)
-        
+
         # prepare url query params
         if method in ["GET", "DELETE"]:
             query_params = params
@@ -183,7 +184,7 @@ class Zerodha(KiteConnect):
             raise ex.DataException("Unknown Content-Type ({content_type}) with response: ({content})".format(
                 content_type=r.headers["content-type"],
                 content=r.content))
-    
+
     def get_chunk_js(self):
         self.r = self.reqsession.get(urljoin(base_url, '/dashboard'))
         html = self.r.text
@@ -195,25 +196,25 @@ class Zerodha(KiteConnect):
         url = urljoin(base_url, tag.attrs.get("href"))
         self.r = self.reqsession.get(url)
         return self.r.text
-    
+
     def chunk_to_json(self, js):
         start = js.find('{"months"')
         end = js.find("\')}}])")
         jtxt = js[start:end].replace('\\','')
         self.chunkjs = json.loads(jtxt)
         return self.chunkjs
-    
+
     def instruments(self, exchange=None):
         if exchange:
             self.r = self.reqsession.get(instruments_url + "/{}".format(exchange))
         else:
             self.r = self.reqsession.get(instruments_url)
         return self._parse_instruments(self.r.text)
-        
+
     def close(self):
         self.reqsession.close()
-   
-    
+
+
     def ticker(self, api_key='kitefront', enctoken=None, userid=None):
         if enctoken is not None:
             self.enctoken = self.r.cookies['enc_token']
@@ -221,8 +222,12 @@ class Zerodha(KiteConnect):
             self.user_id = self.user_id
         if self.user_id is None:
             raise Exception("\nCould not find the session, Please start a session using \n\n$ jtrader zerodha startsession")
-        return KiteTicker(api_key=api_key, access_token=self.enc_token+'&user_id='+self.user_id, root='wss://ws.zerodha.com')
-                            
+        return KiteTicker(
+            api_key=api_key,
+            access_token=f"&user_id={self.user_id}&enctoken={urllib.parse.quote(self.enc_token)}",
+            root="wss://ws.zerodha.com",
+        )
+
 class Console(Zerodha):
     """
         Experimental support for Zerodha backoffice platform Coin
@@ -252,7 +257,7 @@ class Console(Zerodha):
             args:
                 z - Instance of Zerodha class
         """
-        
+
         super().__init__(z.user_id, z.password, z.twofa)
         self._root = self._default_root_uri
 
@@ -263,9 +268,9 @@ class Console(Zerodha):
             "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
                     }
         self.reqsession.headers.update(headers)
-        self.console_session = "" 
-        self.public_token = "" 
-        self.register_functions() 
+        self.console_session = ""
+        self.public_token = ""
+        self.register_functions()
     def custom_headers(self):
         h = {}
         h['referer'] = 'https://console.zerodha.com/'
@@ -276,23 +281,23 @@ class Console(Zerodha):
         h['user-agent'] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.164 Safari/537.36"
 
         return h
-    
+
 
     def login(self):
         """
             Get request to /login redirects to kite, if the Kite session is
             already active, You are redirected back to Console and logged in
-            automatically            
+            automatically
         """
         url = self._root + self._routes["login"]
-        self.r = self.reqsession.get(url) 
+        self.r = self.reqsession.get(url)
         if self.r.url == 'https://console.zerodha.com/dashboard':
             cookies = self.reqsession.cookies.get_dict('console.zerodha.com')
             self.console_session = cookies['session']
             return True
         else:
             raise Exception("Login failed or Kite session expired")
-    
+
     def factory_functions(self, route, docstring=""):
         """
             All APIs used by console end up sendinga a get request with some
@@ -303,7 +308,7 @@ class Console(Zerodha):
             return self._get(route, params=kwargs)
         generic_function.__doc__ = docstring
         return generic_function
-    
+
     def register_functions(self):
         self.dashboard = self.factory_functions("dashboard")
         self.account_values = self.factory_functions("account_values")
@@ -318,6 +323,6 @@ class Console(Zerodha):
         self.ledger = self.factory_functions("ledger")
         self.interest_statement = self.factory_functions("interest_statement")
         self.mandate = self.factory_functions("mandate")
-   
+
 if __name__=="__main__":
     pass
