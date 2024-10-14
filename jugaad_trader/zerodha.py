@@ -226,6 +226,7 @@ class Zerodha(KiteConnect):
             api_key=api_key,
             access_token=f"&user_id={self.user_id}&enctoken={urllib.parse.quote(self.enc_token)}",
             root="wss://ws.zerodha.com",
+            debug=True
         )
 
 class Console(Zerodha):
